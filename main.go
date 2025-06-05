@@ -44,9 +44,6 @@ type Client struct {
 	StrikeCount int
 }
 
-type BannedMf struct {
-}
-
 func server(messages chan Message) {
 	clients := map[string]*Client{}
 	bannedMfs := map[string]time.Time{}
