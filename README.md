@@ -1,5 +1,5 @@
-## Simple multi user chat in Go
+## Simple multi user chat in Rust
 
 ```bash
-go run main.go
+cargo run
 ```
