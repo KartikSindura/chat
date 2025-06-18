@@ -4,7 +4,7 @@ use crossterm::{
     event::{Event, KeyCode, KeyModifiers, poll, read},
     terminal,
 };
-use std::str;
+use std::{env, str};
 use std::{
     io::{ErrorKind, Read, Write, stdout},
     time::Duration,
@@ -34,7 +34,11 @@ fn chat_window(stdout: &mut impl Write, chat: &[String], boundary: Rect) {
 }
 
 fn main() {
-    let mut stream = TcpStream::connect("0.0.0.0:6969").unwrap();
+    let mut args = env::args();
+    let program = args.next().expect("program name");
+    let ip = args.next().expect("provide ip");
+
+    let mut stream = TcpStream::connect(format!("{ip}:6969")).unwrap();
     stream.set_nonblocking(true).unwrap();
 
     let mut stdout = stdout();
@@ -67,6 +71,9 @@ fn main() {
                     KeyCode::Enter => {
                         stream.write_all(prompt.as_bytes()).unwrap();
                         chat.push(prompt.clone());
+                        prompt.clear();
+                    }
+                    KeyCode::Esc => {
                         prompt.clear();
                     }
                     _ => {}
