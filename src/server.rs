@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fmt,
+    fmt::{self, Write as OtherWrite},
     io::{Read, Write},
     net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream},
     result,
@@ -13,6 +13,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use getrandom::fill;
+
 type Result<T> = result::Result<T, ()>;
 
 const SAFE_MODE: bool = false;
@@ -20,9 +22,9 @@ const BAN_LIMIT: Duration = Duration::from_secs(10 * 60);
 const MESSAGE_RATE: Duration = Duration::from_secs(1);
 const STRIKE_LIMIT: i32 = 10;
 
-struct Sensitive<T>(T);
+struct Sens<T>(T);
 
-impl<T: fmt::Display> fmt::Display for Sensitive<T> {
+impl<T: fmt::Display> fmt::Display for Sens<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if SAFE_MODE {
             writeln!(f, "[REDACTED]")
@@ -159,10 +161,66 @@ fn server(messages: Receiver<Message>) -> Result<()> {
     }
 }
 
-fn client(stream: Arc<TcpStream>, messages: Sender<Message>) -> Result<()> {
+fn authorize(stream: &Arc<TcpStream>, token: &str, author_addr: &SocketAddr) -> Result<()> {
+    let mut buf: [u8; 32] = [0; 32];
+    let n = stream.as_ref().read(&mut buf).map_err(|err| {
+        eprintln!(
+            "ERROR: could not read authorization token from {}: {}",
+            Sens(author_addr),
+            Sens(err)
+        )
+    })?;
+
+    if n < buf.len() {
+        eprintln!("ERROR: didnt fully ready the authorization token: only {n} bytes");
+        return Err(());
+    }
+    let user_token = from_utf8(&buf[0..n]).map_err(|err| {
+        eprintln!("ERROR: token is not valid utf8: {err}");
+    })?;
+    if user_token != token {
+        eprintln!("ERROR: user provided invalid token");
+        return Err(());
+    }
+    Ok(())
+}
+
+fn client(stream: Arc<TcpStream>, messages: Sender<Message>, token: String) -> Result<()> {
     let author_addr = stream.peer_addr().map_err(|err| {
         eprintln!("ERROR: could not get peer address: {err}");
     })?;
+    let _ = write!(stream.as_ref(), "Token: ").map_err(|err| {
+        eprintln!(
+            "ERROR: could not send Token prompt to {}: {}",
+            Sens(author_addr),
+            Sens(err)
+        );
+    });
+    authorize(&stream, &token, &author_addr).map_err(|()| {
+        let _ = writeln!(stream.as_ref(), "Invalid token!").map_err(|err| {
+            eprintln!(
+                "ERROR: could not notify client {} about invalid token: {}",
+                Sens(author_addr),
+                Sens(err)
+            );
+        });
+        let _ = stream.shutdown(Shutdown::Both).map_err(|err| {
+            eprintln!(
+                "ERROR: could not shutdown {}: {}",
+                Sens(author_addr),
+                Sens(err)
+            );
+        });
+    })?;
+    println!("INFO: {} authorized!", Sens(author_addr));
+    let _ = writeln!(stream.as_ref(), "Welcome!").map_err(|err| {
+        eprintln!(
+            "ERROR: could not send welcome prompt to client {}: {}",
+            Sens(author_addr),
+            Sens(err)
+        );
+    });
+
     messages
         .send(Message::ClientConnected {
             author: stream.clone(),
@@ -204,15 +262,21 @@ fn client(stream: Arc<TcpStream>, messages: Sender<Message>) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    let mut buffer = [0; 16];
+    let _ = fill(&mut buffer).map_err(|err| {
+        eprintln!("ERROR: could not generate random access token: {err}");
+    });
+
+    let mut token = String::new();
+    for x in buffer.iter() {
+        write!(&mut token, "{x:02X}");
+    }
+    println!("Token: {token}");
+
     let addr = "0.0.0.0:6969";
-    println!("INFO: Listening to {}", Sensitive(addr));
-    let listener = TcpListener::bind(addr).map_err(|err| {
-        eprintln!(
-            "ERROR: could not bind to {}: {}",
-            Sensitive(addr),
-            Sensitive(err)
-        )
-    })?;
+    println!("INFO: Listening to {}", Sens(addr));
+    let listener = TcpListener::bind(addr)
+        .map_err(|err| eprintln!("ERROR: could not bind to {}: {}", Sens(addr), Sens(err)))?;
     let (message_sender, message_receiver) = channel();
     thread::spawn(|| server(message_receiver));
 
@@ -220,10 +284,11 @@ fn main() -> Result<()> {
         match stream {
             Ok(stream) => {
                 let message_sender = message_sender.clone();
-                thread::spawn(|| client(stream.into(), message_sender));
+                let token = token.clone();
+                thread::spawn(|| client(stream.into(), message_sender, token));
             }
             Err(err) => {
-                eprintln!("ERROR: could not accept connection: {}", Sensitive(err));
+                eprintln!("ERROR: could not accept connection: {}", Sens(err));
             }
         }
     }

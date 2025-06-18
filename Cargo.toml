@@ -1,6 +1,11 @@
+[[bin]]
+name = "server"
+path = "./src/server.rs"
+
 [package]
 name = "chat"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+getrandom = "0.3.3"
