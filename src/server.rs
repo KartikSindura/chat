@@ -126,10 +126,9 @@ fn server(messages: Receiver<Message>, token: String) -> Result<()> {
                         .expect("TODO: dont crash if the clock went backwards");
                     if diff >= MESSAGE_RATE {
                         if let Ok(text) = from_utf8(&bytes) {
-                            println!("INFO: Client {author_addr} sent {bytes:?}");
-
                             if author.authed {
                                 // broadcasting
+                                println!("INFO: Client {author_addr} sent {bytes:?}");
                                 for (addr, client) in clients.iter() {
                                     if author_addr != *addr && client.authed {
                                         let _ = client.conn.as_ref().write(&bytes).map_err(|err| {
