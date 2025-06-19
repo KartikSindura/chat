@@ -28,7 +28,6 @@ fn get_random_color() -> Color {
         Color::Magenta,
         Color::Red,
         Color::Yellow,
-        Color::White,
     ];
 
     *colors.choose(&mut rand::rng()).unwrap()
@@ -87,12 +86,10 @@ const COMMANDS: &[Command] = &[
 fn auth_command(stream: &mut TcpStream, token: &str, _chat: &mut Vec<String>, nick: &mut String) {
     stream.write_all(token.as_bytes()).unwrap();
 }
-fn quit_command(
-    _stream: &mut TcpStream,
-    _prompt: &str,
-    _chat: &mut Vec<String>,
-    nick: &mut String,
-) {
+fn quit_command(stream: &mut TcpStream, _prompt: &str, _chat: &mut Vec<String>, nick: &mut String) {
+    stream
+        .write_all(format!("{nick} left.").as_bytes())
+        .unwrap();
     exit(1);
 }
 fn help_command(_stream: &mut TcpStream, _prompt: &str, chat: &mut Vec<String>, nick: &mut String) {
@@ -109,9 +106,13 @@ fn set_nick_command(
     chat: &mut Vec<String>,
     nick: &mut String,
 ) {
-    let trimmed = prompt.trim();
-    if trimmed.is_empty() {
-        chat.push("Nickname cannot be empty.\r\n".to_string());
+    let mut trimmed: &str;
+    trimmed = prompt.trim();
+    if prompt.len() > 16 {
+        trimmed = prompt[0..16].trim();
+    }
+    if trimmed.is_empty() || trimmed == *nick {
+        chat.push("Nickname cannot be empty or same.\r\n".to_string());
     } else {
         chat.push(format!("Nickname changed from {} to {}\r\n", nick, trimmed));
         *nick = trimmed.to_string();
@@ -134,6 +135,7 @@ fn main() {
     let mut prompt = String::new();
     let mut quit = false;
     let mut chat = Vec::new();
+
     let mut nick = String::from("anon");
     let color = get_random_color();
 
@@ -141,7 +143,7 @@ fn main() {
     chat.push("/auth <token>\r\n".to_string());
     chat.push("/quit\r\n".to_string());
     chat.push("/help\r\n".to_string());
-    chat.push("/nick <name>\r\n".to_string());
+    chat.push("/nick <name> (0-16 chars)\r\n".to_string());
     chat.push("\r\n".to_string());
     chat.push("You are offline. Use /auth <token> to authenticate.".to_string());
     let mut buf = [0; 64];
@@ -175,7 +177,7 @@ fn main() {
                                 let token = prompt[command.name.len()..].trim_start();
                                 (command.run)(
                                     &mut stream,
-                                    if token.is_empty() { "dummy" } else { token },
+                                    if token.is_empty() { "" } else { token },
                                     &mut chat,
                                     &mut nick,
                                 );
@@ -193,6 +195,9 @@ fn main() {
                     }
                     KeyCode::Esc => {
                         prompt.clear();
+                    }
+                    KeyCode::Backspace => {
+                        prompt.pop();
                     }
                     _ => {}
                 },
