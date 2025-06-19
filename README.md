@@ -1,5 +1,5 @@
-## Simple multi user chat in Rust
-
-```bash
-cargo run
-```
+<!-- ## Simple multi user chat in Rust -->
+<!---->
+<!-- ```bash -->
+<!-- cargo run -->
+<!-- ``` -->
