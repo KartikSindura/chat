@@ -105,13 +105,17 @@ fn server(messages: Receiver<Message>, token: String) -> Result<()> {
                             authed: false,
                         },
                     );
-                    let _ = write!(author.as_ref(), "Token: ").map_err(|err| {
-                        eprintln!(
-                            "ERROR: could not send Token prompt to {}: {}",
-                            Sens(author_addr),
-                            Sens(err)
-                        );
-                    });
+                    // let _ = write!(
+                    //     author.as_ref(),
+                    //     "Commands: \r\n/auth <token>\r\n/quit\r\n/help"
+                    // )
+                    // .map_err(|err| {
+                    //     eprintln!(
+                    //         "ERROR: could not send Token prompt to {}: {}",
+                    //         Sens(author_addr),
+                    //         Sens(err)
+                    //     );
+                    // });
                 }
             }
             Message::ClientDisconnected { author_addr } => {
