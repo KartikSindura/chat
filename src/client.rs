@@ -37,8 +37,9 @@ fn main() {
     let mut args = env::args();
     let program = args.next().expect("program name");
     let ip = args.next().expect("provide ip");
+    let port = args.next().expect("port");
 
-    let mut stream = TcpStream::connect(format!("{ip}:6969")).unwrap();
+    let mut stream = TcpStream::connect(format!("{ip}:{port}")).unwrap();
     stream.set_nonblocking(true).unwrap();
 
     let mut stdout = stdout();
