@@ -3,6 +3,8 @@ use std::{
     fmt::{self, Write as OtherWrite},
     io::{Read, Write},
     net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream},
+    panic::RefUnwindSafe,
+    process::exit,
     result,
     str::from_utf8,
     sync::{
@@ -35,14 +37,84 @@ impl<T: fmt::Display> fmt::Display for Sens<T> {
     }
 }
 
+struct Command {
+    name: &'static str,
+    desc: &'static str,
+    run: fn(stream: Arc<TcpStream>, token: &str, nick: &mut String),
+}
+
+const COMMANDS: &[Command] = &[
+    Command {
+        name: "/auth",
+        desc: "Authenticate using a token",
+        run: auth_command,
+    },
+    Command {
+        name: "/quit",
+        desc: "Quit",
+        run: quit_command,
+    },
+    Command {
+        name: "/help",
+        desc: "Print this help",
+        run: help_command,
+    },
+    Command {
+        name: "/nick",
+        desc: "Change your nickname",
+        run: set_nick_command,
+    },
+];
+
+fn auth_command(stream: Arc<TcpStream>, token: &str, _nick: &mut String) {
+    stream.as_ref().write_all(token.as_bytes()).unwrap();
+}
+fn quit_command(_stream: Arc<TcpStream>, _prompt: &str, _nick: &mut String) {
+    // let msg = format!("{nick} left.");
+    // stream.as_ref().write_all(msg.as_bytes()).unwrap();
+    exit(1);
+}
+fn help_command(stream: Arc<TcpStream>, _prompt: &str, _nick: &mut String) {
+    let mut buf = String::new();
+    buf.push_str("Usage: \r\n");
+    for cmd in COMMANDS {
+        let total = format!("{} - {}\r\n", cmd.name, cmd.desc);
+        // chat.push(total + "\r\n");
+        stream.as_ref().write_all(total.as_bytes()).unwrap();
+    }
+}
+fn set_nick_command(stream: Arc<TcpStream>, prompt: &str, nick: &mut String) {
+    let mut trimmed: &str;
+    trimmed = prompt.trim();
+    if prompt.len() > 16 {
+        trimmed = prompt[0..16].trim();
+    }
+    if trimmed.is_empty() || trimmed == *nick {
+        stream
+            .as_ref()
+            .write_all("Nickname cannot by empty or same.\r\n".as_bytes())
+            .unwrap();
+    } else {
+        stream
+            .as_ref()
+            .write_all(format!("Nickname changed from {} to {}\r\n", nick, trimmed).as_bytes())
+            .unwrap();
+        *nick = trimmed.to_string();
+    }
+}
+
 enum Message {
-    ClientConnected {
-        author: Arc<TcpStream>,
-    },
-    ClientDisconnected {
+    ClientConnected { author: Arc<TcpStream> },
+    ClientDisconnected { author_addr: SocketAddr },
+    New { message_type: NewMessageType },
+}
+
+enum NewMessageType {
+    TextMessage {
         author_addr: SocketAddr,
+        bytes: Vec<u8>,
     },
-    New {
+    CommandMessage {
         author_addr: SocketAddr,
         bytes: Vec<u8>,
     },
@@ -122,81 +194,199 @@ fn server(messages: Receiver<Message>, token: String) -> Result<()> {
                 eprintln!("INFO: Client {author_addr} disconnected");
                 clients.remove(&author_addr);
             }
-            Message::New { author_addr, bytes } => {
-                if let Some(author) = clients.get_mut(&author_addr) {
-                    let now = SystemTime::now();
-                    let diff = now
-                        .duration_since(author.last_message)
-                        .expect("TODO: dont crash if the clock went backwards");
-                    if diff >= MESSAGE_RATE {
-                        if let Ok(text) = from_utf8(&bytes) {
-                            if author.authed {
-                                // broadcasting
-                                println!("INFO: Client {author_addr} sent {bytes:?}");
-                                for (addr, client) in clients.iter() {
-                                    if author_addr != *addr && client.authed {
-                                        let _ = client.conn.as_ref().write(&bytes).map_err(|err| {
+            Message::New { message_type } => {
+                match message_type {
+                    NewMessageType::TextMessage { author_addr, bytes } => {
+                        if let Some(author) = clients.get_mut(&author_addr) {
+                            let now = SystemTime::now();
+                            let diff = now
+                                .duration_since(author.last_message)
+                                .expect("TODO: dont crash if the clock went backwards");
+                            if diff >= MESSAGE_RATE {
+                                if let Ok(text) = from_utf8(&bytes) {
+                                    if author.authed {
+                                        // broadcasting
+                                        println!("INFO: Client {author_addr} sent {bytes:?}");
+                                        for (addr, client) in clients.iter() {
+                                            if author_addr != *addr && client.authed {
+                                                let _ = client.conn.as_ref().write(&bytes).map_err(|err| {
                                         eprintln!("ERROR: could not broadcast message to all the clients from {author_addr}: {err}")
                                     });
-                                    }
-                                }
-                            } else {
-                                if text == token {
-                                    author.authed = true;
-                                    println!("INFO: {} authorized!", Sens(author_addr));
-                                    let _ = writeln!(author.conn.as_ref(), "Welcome!").map_err(|err| {
+                                            }
+                                        }
+                                    } else {
+                                        if text == token {
+                                            author.authed = true;
+                                            println!("INFO: {} authorized!", Sens(author_addr));
+                                            let _ = writeln!(author.conn.as_ref(), "Welcome!").map_err(|err| {
                                         eprintln!(
                                             "ERROR: could not send welcome prompt to client {}: {}",
                                             Sens(author_addr),
                                             Sens(err)
                                         );
                                     });
-                                } else {
-                                    let _ = writeln!(author.conn.as_ref(), "Invalid token!").map_err(|err| {
+                                        } else {
+                                            let _ = writeln!(author.conn.as_ref(), "Invalid token!").map_err(|err| {
                                             eprintln!(
                                                 "ERROR: could not notify client {} about invalid token: {}",
                                                 Sens(author_addr),
                                                 Sens(err)
                                             );
                                         });
-                                    let _ = author.conn.shutdown(Shutdown::Both).map_err(|err| {
-                                        eprintln!(
-                                            "ERROR: could not shutdown {}: {}",
-                                            Sens(author_addr),
-                                            Sens(err)
-                                        );
-                                    });
-                                    clients.remove(&author_addr);
-                                }
-                            }
-                        } else {
-                            author.strike_count += 1;
-                            if author.strike_count >= STRIKE_LIMIT {
-                                println!("INFO: Client {author_addr} got banned");
-                                banned_mfs.insert(author_addr.ip().clone(), now);
-                                let _ = writeln!(author.conn.as_ref(), "You are banned!").map_err(|err| {
+                                            let _ = author.conn.shutdown(Shutdown::Both).map_err(
+                                                |err| {
+                                                    eprintln!(
+                                                        "ERROR: could not shutdown {}: {}",
+                                                        Sens(author_addr),
+                                                        Sens(err)
+                                                    );
+                                                },
+                                            );
+                                            clients.remove(&author_addr);
+                                        }
+                                    }
+                                } else {
+                                    author.strike_count += 1;
+                                    if author.strike_count >= STRIKE_LIMIT {
+                                        println!("INFO: Client {author_addr} got banned");
+                                        banned_mfs.insert(author_addr.ip().clone(), now);
+                                        let _ = writeln!(author.conn.as_ref(), "You are banned!").map_err(|err| {
                                         eprintln!("ERROR: could not send banned message to {author_addr}: {err}")
                                     });
-                                let _ = author.conn.shutdown(Shutdown::Both).map_err(|err| {
+                                        let _ = author.conn.shutdown(Shutdown::Both).map_err(|err| {
                                     eprintln!(
                                         "ERROR: could not shutdown socket for {author_addr}: {err}"
                                     )
                                 });
-                            }
-                        }
-                    } else {
-                        author.strike_count += 1;
-                        if author.strike_count >= STRIKE_LIMIT {
-                            println!("INFO: Client {author_addr} got banned");
-                            banned_mfs.insert(author_addr.ip().clone(), now);
-                            let _ = writeln!(author.conn.as_ref(), "You are banned!").map_err(|err| {
+                                    }
+                                }
+                            } else {
+                                author.strike_count += 1;
+                                if author.strike_count >= STRIKE_LIMIT {
+                                    println!("INFO: Client {author_addr} got banned");
+                                    banned_mfs.insert(author_addr.ip().clone(), now);
+                                    let _ = writeln!(author.conn.as_ref(), "You are banned!").map_err(|err| {
                                         eprintln!("ERROR: could not send banned message to {author_addr}: {err}")
                                     });
-                            let _ = author.conn.shutdown(Shutdown::Both).map_err(|err| {
+                                    let _ = author.conn.shutdown(Shutdown::Both).map_err(|err| {
                                 eprintln!(
                                     "ERROR: could not shutdown socket for {author_addr}: {err}"
                                 )
                             });
+                                }
+                            }
+                        }
+                    }
+                    NewMessageType::CommandMessage { author_addr, bytes } => {
+                        if let Some(author) = clients.get_mut(&author_addr) {
+                            let now = SystemTime::now();
+                            let diff = now
+                                .duration_since(author.last_message)
+                                .expect("TODO: dont crash if the clock went backwards");
+                            if diff >= MESSAGE_RATE {
+                                if let Ok(text) = from_utf8(&bytes) {
+                                    // send command to self
+                                    let mut is_command = false;
+                                    let mut nick = String::from("dummy");
+                                    for command in COMMANDS {
+                                        if text.starts_with(command.name) {
+                                            let user_token =
+                                                text[command.name.len()..].trim_start();
+                                            if command.name == "/auth" && !author.authed {
+                                                if token == user_token {
+                                                    author.authed = true;
+                                                    println!(
+                                                        "INFO: {} authorized!",
+                                                        Sens(author_addr)
+                                                    );
+                                                    let _ = writeln!(author.conn.as_ref(), "Welcome!").map_err(|err| {
+                                        eprintln!(
+                                            "ERROR: could not send welcome prompt to client {}: {}",
+                                            Sens(author_addr),
+                                            Sens(err)
+                                        );
+                                    });
+                                                } else {
+                                                    let _ = writeln!(author.conn.as_ref(), "Invalid token!").map_err(|err| {
+                                            eprintln!(
+                                                "ERROR: could not notify client {} about invalid token: {}",
+                                                Sens(author_addr),
+                                                Sens(err)
+                                            );
+                                        });
+                                                    let _ = author
+                                                        .conn
+                                                        .shutdown(Shutdown::Both)
+                                                        .map_err(|err| {
+                                                            eprintln!(
+                                                                "ERROR: could not shutdown {}: {}",
+                                                                Sens(author_addr),
+                                                                Sens(err)
+                                                            );
+                                                        });
+                                                    clients.remove(&author_addr);
+                                                }
+                                            } else {
+                                                author
+                                                    .conn
+                                                    .as_ref()
+                                                    .write_all("Already authorized.".as_bytes())
+                                                    .unwrap();
+                                                break;
+                                            }
+                                            (command.run)(
+                                                author.conn.clone(),
+                                                if user_token.is_empty() {
+                                                    ""
+                                                } else {
+                                                    user_token
+                                                },
+                                                &mut nick,
+                                            );
+                                            is_command = true;
+                                            break;
+                                        }
+                                    }
+                                    if !is_command {
+                                        println!("INFO: Client {author_addr} sent {bytes:?}");
+                                        for (addr, client) in clients.iter() {
+                                            if author_addr != *addr && client.authed {
+                                                let _ = client.conn.as_ref().write(&bytes).map_err(|err| {
+                                        eprintln!("ERROR: could not broadcast message to all the clients from {author_addr}: {err}")
+                                    });
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    author.strike_count += 1;
+                                    if author.strike_count >= STRIKE_LIMIT {
+                                        println!("INFO: Client {author_addr} got banned");
+                                        banned_mfs.insert(author_addr.ip().clone(), now);
+                                        let _ = writeln!(author.conn.as_ref(), "You are banned!").map_err(|err| {
+                                        eprintln!("ERROR: could not send banned message to {author_addr}: {err}")
+                                    });
+                                        let _ = author.conn.shutdown(Shutdown::Both).map_err(|err| {
+                                    eprintln!(
+                                        "ERROR: could not shutdown socket for {author_addr}: {err}"
+                                    )
+                                });
+                                    }
+                                }
+                            } else {
+                                author.strike_count += 1;
+                                if author.strike_count >= STRIKE_LIMIT {
+                                    println!("INFO: Client {author_addr} got banned");
+                                    banned_mfs.insert(author_addr.ip().clone(), now);
+                                    let _ = writeln!(author.conn.as_ref(), "You are banned!").map_err(|err| {
+                                        eprintln!("ERROR: could not send banned message to {author_addr}: {err}")
+                                    });
+                                    let _ = author.conn.shutdown(Shutdown::Both).map_err(|err| {
+                                eprintln!(
+                                    "ERROR: could not shutdown socket for {author_addr}: {err}"
+                                )
+                            });
+                                }
+                            }
                         }
                     }
                 }
@@ -233,11 +423,27 @@ fn client(stream: Arc<TcpStream>, messages: Sender<Message>) -> Result<()> {
                     bytes.push(*x);
                 }
             }
-            messages
-                .send(Message::New { author_addr, bytes })
-                .map_err(|err| {
-                    eprintln!("ERROR: could not send message to the server thread: {err}");
-                })?;
+            let slash = std::str::from_utf8(&bytes[0..1]).map_err(|e| {
+                eprintln!("Invalid UTF-8: {e}");
+                // propagate or handle the error
+            })?;
+            if slash == "/" {
+                messages
+                    .send(Message::New {
+                        message_type: NewMessageType::CommandMessage { author_addr, bytes },
+                    })
+                    .map_err(|err| {
+                        eprintln!("ERROR: could not send message to the server thread: {err}");
+                    })?;
+            } else {
+                messages
+                    .send(Message::New {
+                        message_type: NewMessageType::TextMessage { author_addr, bytes },
+                    })
+                    .map_err(|err| {
+                        eprintln!("ERROR: could not send message to the server thread: {err}");
+                    })?;
+            }
         } else {
             let _ = messages
                 .send(Message::ClientDisconnected { author_addr })

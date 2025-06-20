@@ -20,20 +20,20 @@ struct Rect {
     h: usize,
 }
 
-fn get_random_color() -> Color {
-    let colors = [
-        Color::Blue,
-        Color::Cyan,
-        Color::Green,
-        Color::Magenta,
-        Color::Red,
-        Color::Yellow,
-    ];
+// fn get_random_color() -> Color {
+//     let colors = [
+//         Color::Blue,
+//         Color::Cyan,
+//         Color::Green,
+//         Color::Magenta,
+//         Color::Red,
+//         Color::Yellow,
+//     ];
+//
+//     *colors.choose(&mut rand::rng()).unwrap()
+// }
 
-    *colors.choose(&mut rand::rng()).unwrap()
-}
-
-fn chat_window(stdout: &mut impl Write, chat: &[String], boundary: Rect, color: Color) {
+fn chat_window(stdout: &mut impl Write, chat: &[String], boundary: Rect /* color: Color */) {
     let n = chat.len();
     let m = n.checked_sub(boundary.h).unwrap_or(0);
 
@@ -41,83 +41,83 @@ fn chat_window(stdout: &mut impl Write, chat: &[String], boundary: Rect, color: 
         stdout
             .queue(MoveTo(boundary.x as u16, (boundary.y + dy) as u16))
             .unwrap();
-        if let Some((name, rest)) = line.split_once(": ") {
-            stdout.queue(SetForegroundColor(color)).unwrap();
-            stdout.write_all(name.as_bytes()).unwrap();
-
-            stdout.queue(ResetColor).unwrap();
-            stdout.write_all(b": ").unwrap();
-            stdout.write_all(rest.as_bytes()).unwrap();
-        } else {
-            stdout.write_all(line.as_bytes()).unwrap();
-        }
+        // if let Some((name, rest)) = line.split_once(": ") {
+        //     stdout.queue(SetForegroundColor(color)).unwrap();
+        //     stdout.write_all(name.as_bytes()).unwrap();
+        //
+        //     stdout.queue(ResetColor).unwrap();
+        //     stdout.write_all(b": ").unwrap();
+        //     stdout.write_all(rest.as_bytes()).unwrap();
+        // } else {
+        stdout.write_all(line.as_bytes()).unwrap();
+        // }
     }
 }
 
-struct Command {
-    name: &'static str,
-    desc: &'static str,
-    run: fn(&mut TcpStream, &str, chat: &mut Vec<String>, nick: &mut String),
-}
-
-const COMMANDS: &[Command] = &[
-    Command {
-        name: "/auth",
-        desc: "Authenticate using a token",
-        run: auth_command,
-    },
-    Command {
-        name: "/quit",
-        desc: "Quit",
-        run: quit_command,
-    },
-    Command {
-        name: "/help",
-        desc: "Print this help",
-        run: help_command,
-    },
-    Command {
-        name: "/nick",
-        desc: "Change your nickname",
-        run: set_nick_command,
-    },
-];
-
-fn auth_command(stream: &mut TcpStream, token: &str, _chat: &mut Vec<String>, nick: &mut String) {
-    stream.write_all(token.as_bytes()).unwrap();
-}
-fn quit_command(stream: &mut TcpStream, _prompt: &str, _chat: &mut Vec<String>, nick: &mut String) {
-    stream
-        .write_all(format!("{nick} left.").as_bytes())
-        .unwrap();
-    exit(1);
-}
-fn help_command(_stream: &mut TcpStream, _prompt: &str, chat: &mut Vec<String>, nick: &mut String) {
-    let mut buf = String::new();
-    buf.push_str("Usage: \r\n");
-    for cmd in COMMANDS {
-        let total = format!("{} - {}\r\n", cmd.name, cmd.desc);
-        chat.push(total + "\r\n");
-    }
-}
-fn set_nick_command(
-    _stream: &mut TcpStream,
-    prompt: &str,
-    chat: &mut Vec<String>,
-    nick: &mut String,
-) {
-    let mut trimmed: &str;
-    trimmed = prompt.trim();
-    if prompt.len() > 16 {
-        trimmed = prompt[0..16].trim();
-    }
-    if trimmed.is_empty() || trimmed == *nick {
-        chat.push("Nickname cannot be empty or same.\r\n".to_string());
-    } else {
-        chat.push(format!("Nickname changed from {} to {}\r\n", nick, trimmed));
-        *nick = trimmed.to_string();
-    }
-}
+// struct Command {
+//     name: &'static str,
+//     desc: &'static str,
+//     run: fn(&mut TcpStream, &str, chat: &mut Vec<String>, nick: &mut String),
+// }
+//
+// const COMMANDS: &[Command] = &[
+//     Command {
+//         name: "/auth",
+//         desc: "Authenticate using a token",
+//         run: auth_command,
+//     },
+//     Command {
+//         name: "/quit",
+//         desc: "Quit",
+//         run: quit_command,
+//     },
+//     Command {
+//         name: "/help",
+//         desc: "Print this help",
+//         run: help_command,
+//     },
+//     Command {
+//         name: "/nick",
+//         desc: "Change your nickname",
+//         run: set_nick_command,
+//     },
+// ];
+//
+// fn auth_command(stream: &mut TcpStream, token: &str, _chat: &mut Vec<String>, nick: &mut String) {
+//     stream.write_all(token.as_bytes()).unwrap();
+// }
+// fn quit_command(stream: &mut TcpStream, _prompt: &str, _chat: &mut Vec<String>, nick: &mut String) {
+//     stream
+//         .write_all(format!("{nick} left.").as_bytes())
+//         .unwrap();
+//     exit(1);
+// }
+// fn help_command(_stream: &mut TcpStream, _prompt: &str, chat: &mut Vec<String>, nick: &mut String) {
+//     let mut buf = String::new();
+//     buf.push_str("Usage: \r\n");
+//     for cmd in COMMANDS {
+//         let total = format!("{} - {}\r\n", cmd.name, cmd.desc);
+//         chat.push(total + "\r\n");
+//     }
+// }
+// fn set_nick_command(
+//     _stream: &mut TcpStream,
+//     prompt: &str,
+//     chat: &mut Vec<String>,
+//     nick: &mut String,
+// ) {
+//     let mut trimmed: &str;
+//     trimmed = prompt.trim();
+//     if prompt.len() > 16 {
+//         trimmed = prompt[0..16].trim();
+//     }
+//     if trimmed.is_empty() || trimmed == *nick {
+//         chat.push("Nickname cannot be empty or same.\r\n".to_string());
+//     } else {
+//         chat.push(format!("Nickname changed from {} to {}\r\n", nick, trimmed));
+//         *nick = trimmed.to_string();
+//     }
+// }
 
 fn main() {
     let mut args = env::args();
@@ -136,8 +136,8 @@ fn main() {
     let mut quit = false;
     let mut chat = Vec::new();
 
-    let mut nick = String::from("anon");
-    let color = get_random_color();
+    // let mut nick = String::from("anon");
+    // let color = get_random_color();
 
     chat.push("Commands:\r\n".to_string());
     chat.push("/auth <token>\r\n".to_string());
@@ -162,36 +162,38 @@ fn main() {
                 Event::Key(event) => match event.code {
                     KeyCode::Char(x) => {
                         if x == 'c' && event.modifiers.contains(KeyModifiers::CONTROL) {
-                            stream
-                                .write_all(format!("{nick} left.").as_bytes())
-                                .unwrap();
+                            // stream
+                            //     .write_all(format!("{nick} left.").as_bytes())
+                            //     .unwrap();
                             quit = true;
                         } else {
                             prompt.push(x);
                         }
                     }
                     KeyCode::Enter => {
-                        let mut is_command = false;
-                        for command in COMMANDS.iter() {
-                            if prompt.starts_with(command.name) {
-                                let token = prompt[command.name.len()..].trim_start();
-                                (command.run)(
-                                    &mut stream,
-                                    if token.is_empty() { "" } else { token },
-                                    &mut chat,
-                                    &mut nick,
-                                );
-                                prompt.clear();
-                                is_command = true;
-                                break;
-                            }
-                        }
-                        if !is_command {
-                            let full_msg = format!("{nick}: {prompt}");
-                            stream.write_all(full_msg.as_bytes()).unwrap();
-                            chat.push(full_msg.clone());
-                            prompt.clear();
-                        }
+                        // let mut is_command = false;
+                        // for command in COMMANDS.iter() {
+                        //     if prompt.starts_with(command.name) {
+                        //         let token = prompt[command.name.len()..].trim_start();
+                        //         (command.run)(
+                        //             &mut stream,
+                        //             if token.is_empty() { "" } else { token },
+                        //             &mut chat,
+                        //             &mut nick,
+                        //         );
+                        //         prompt.clear();
+                        //         is_command = true;
+                        //         break;
+                        //     }
+                        // }
+                        // if !is_command {
+                        // let full_msg = format!("{nick}: {prompt}");
+                        // stream.write_all(full_msg.as_bytes()).unwrap();
+                        stream.write_all(prompt.as_bytes()).unwrap();
+                        // chat.push(full_msg.clone());
+                        chat.push(prompt.clone());
+                        prompt.clear();
+                        // }
                     }
                     KeyCode::Esc => {
                         prompt.clear();
@@ -233,7 +235,7 @@ fn main() {
                 w: w as usize,
                 h: h as usize - 2,
             },
-            color,
+            // color,
         );
 
         stdout.queue(MoveTo(0, h - 2)).unwrap();
